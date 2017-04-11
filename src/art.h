@@ -95,6 +95,7 @@ typedef struct {
  */
 typedef struct {
     void *value;
+    void *substitute;
     uint32_t key_len;
     unsigned char key[];
 } art_leaf;

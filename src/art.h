@@ -15,6 +15,11 @@ extern "C" {
 
 #define MAX_PREFIX_LEN 10
 
+/* using 1G of pmem*/
+#define PMEM_LEN 1073741824
+
+#define PATH "pmem-fs/partfile"
+
 #if defined(__GNUC__) && !defined(__clang__)
 # if __STDC_VERSION__ >= 199901L && 402 == (__GNUC__ * 100 + __GNUC_MINOR__)
 /*
@@ -116,7 +121,7 @@ typedef struct {
  * Initializes an ART tree
  * @return 0 on success.
  */
-int art_tree_init(art_tree *t);
+int art_tree_init(art_tree *t, void* addr, VMEM* v);
 
 /**
  * DEPRECATED

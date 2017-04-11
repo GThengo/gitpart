@@ -7,23 +7,55 @@
 
 #include "art.h"
 
+
+void *pmemaddr;
+size_t mapped_len;
+int is_pmem;
+VMEM *vmem;
+
+void create_pmem_vmem(){
+	/* create a pmem file and memory map it */
+	if ((pmemaddr = pmem_map_file(PATH, PMEM_LEN, PMEM_FILE_CREATE, 0666, &mapped_len, &is_pmem)) == NULL) {
+			perror("pmem_map_file");
+			//exit(1);
+			return;
+	}
+
+	if ((vmem = vmem_create_in_region(pmemaddr, mapped_len)) == NULL){
+		perror("vmem_create_in_region");
+		//exit(1);
+		return;
+	}
+}
+
+void destroy_vmem_pmem(){
+	vmem_delete(vmem);
+	pmem_unmap(pmemaddr, mapped_len);
+}
+
 START_TEST(test_art_init_and_destroy)
 {
     art_tree t;
-    int res = art_tree_init(&t);
+    create_pmem_vmem();
+
+    int res = art_tree_init(&t,pmemaddr, vmem);
     fail_unless(res == 0);
 
     fail_unless(art_size(&t) == 0);
 
     res = art_tree_destroy(&t);
     fail_unless(res == 0);
+
+    destroy_vmem_pmem();
 }
 END_TEST
 
 START_TEST(test_art_insert)
 {
     art_tree t;
-    int res = art_tree_init(&t);
+    create_pmem_vmem();
+
+    int res = art_tree_init(&t,pmemaddr, vmem);
     fail_unless(res == 0);
 
     int len;
@@ -41,13 +73,17 @@ START_TEST(test_art_insert)
 
     res = art_tree_destroy(&t);
     fail_unless(res == 0);
+
+    destroy_vmem_pmem();
 }
 END_TEST
 
 START_TEST(test_art_insert_verylong)
 {
     art_tree t;
-    int res = art_tree_init(&t);
+    create_pmem_vmem();
+
+    int res = art_tree_init(&t,pmemaddr, vmem);
     fail_unless(res == 0);
 
     unsigned char key1[300] = {16,0,0,0,7,10,0,0,0,2,17,10,0,0,0,120,10,0,0,0,120,10,0,
@@ -95,13 +131,17 @@ START_TEST(test_art_insert_verylong)
 
     res = art_tree_destroy(&t);
     fail_unless(res == 0);
+
+    destroy_vmem_pmem();
 }
 END_TEST
 
 START_TEST(test_art_insert_search)
 {
     art_tree t;
-    int res = art_tree_init(&t);
+    create_pmem_vmem();
+
+    int res = art_tree_init(&t,pmemaddr, vmem);
     fail_unless(res == 0);
 
     int len;
@@ -142,13 +182,17 @@ START_TEST(test_art_insert_search)
 
     res = art_tree_destroy(&t);
     fail_unless(res == 0);
+
+    destroy_vmem_pmem();
 }
 END_TEST
 
 START_TEST(test_art_insert_delete)
 {
     art_tree t;
-    int res = art_tree_init(&t);
+    create_pmem_vmem();
+
+    int res = art_tree_init(&t,pmemaddr, vmem);
     fail_unless(res == 0);
 
     int len;
@@ -197,6 +241,8 @@ START_TEST(test_art_insert_delete)
 
     res = art_tree_destroy(&t);
     fail_unless(res == 0);
+
+    destroy_vmem_pmem();
 }
 END_TEST
 
@@ -212,7 +258,9 @@ int iter_cb(void *data, const unsigned char* key, uint32_t key_len, void *val) {
 START_TEST(test_art_insert_iter)
 {
     art_tree t;
-    int res = art_tree_init(&t);
+    create_pmem_vmem();
+
+    int res = art_tree_init(&t,pmemaddr, vmem);
     fail_unless(res == 0);
 
     int len;
@@ -240,6 +288,8 @@ START_TEST(test_art_insert_iter)
 
     res = art_tree_destroy(&t);
     fail_unless(res == 0);
+
+    destroy_vmem_pmem();
 }
 END_TEST
 
@@ -262,7 +312,9 @@ static int test_prefix_cb(void *data, const unsigned char *k, uint32_t k_len, vo
 START_TEST(test_art_iter_prefix)
 {
     art_tree t;
-    int res = art_tree_init(&t);
+    create_pmem_vmem();
+
+    int res = art_tree_init(&t,pmemaddr, vmem);
     fail_unless(res == 0);
 
     const char *s = "api.foo.bar";
@@ -324,13 +376,17 @@ START_TEST(test_art_iter_prefix)
 
     res = art_tree_destroy(&t);
     fail_unless(res == 0);
+
+    destroy_vmem_pmem();
 }
 END_TEST
 
 START_TEST(test_art_long_prefix)
 {
     art_tree t;
-    int res = art_tree_init(&t);
+    create_pmem_vmem();
+
+    int res = art_tree_init(&t,pmemaddr, vmem);
     fail_unless(res == 0);
 
     uintptr_t v;
@@ -370,13 +426,17 @@ START_TEST(test_art_long_prefix)
 
     res = art_tree_destroy(&t);
     fail_unless(res == 0);
+
+    destroy_vmem_pmem();
 }
 END_TEST
 
 START_TEST(test_art_insert_search_uuid)
 {
     art_tree t;
-    int res = art_tree_init(&t);
+    create_pmem_vmem();
+
+    int res = art_tree_init(&t,pmemaddr, vmem);
     fail_unless(res == 0);
 
     int len;
@@ -417,13 +477,17 @@ START_TEST(test_art_insert_search_uuid)
 
     res = art_tree_destroy(&t);
     fail_unless(res == 0);
+
+    destroy_vmem_pmem();
 }
 END_TEST
 
 START_TEST(test_art_max_prefix_len_scan_prefix)
 {
     art_tree t;
-    int res = art_tree_init(&t);
+    create_pmem_vmem();
+
+    int res = art_tree_init(&t,pmemaddr, vmem);
     fail_unless(res == 0);
 
     char* key1 = "foobarbaz1-test1-foo";
@@ -446,6 +510,8 @@ START_TEST(test_art_max_prefix_len_scan_prefix)
 
     res = art_tree_destroy(&t);
     fail_unless(res == 0);
+
+    destroy_vmem_pmem();
 }
 END_TEST
 

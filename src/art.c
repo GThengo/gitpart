@@ -21,17 +21,11 @@
 #define SET_LEAF(x) ((void*)((uintptr_t)x | 1))
 #define LEAF_RAW(x) ((art_leaf*)((void*)((uintptr_t)x & ~1)))
 
-/* using 1G of pmem*/
-#define PMEM_LEN 1048576
-
-#define PATH "pmem-fs/partfile"
-
 affected_node *head, *tail;
-void *pmemaddr;
-size_t mapped_len;
-int is_pmem;
-VMEM *vmem;
 long page;
+
+void* pmemaddr;
+VMEM* vmem;
 
 long memory_page(void *addr){
 
@@ -65,24 +59,6 @@ long memory_page(void *addr){
 		cont++;
     }
 	return decimal;
-}
-
-void create_pmem_vmem(){
-	/* create a pmem file and memory map it */
-	if ((pmemaddr = pmem_map_file(PATH, PMEM_LEN, PMEM_FILE_CREATE, 0666, &mapped_len, &is_pmem)) == NULL) {
-			perror("pmem_map_file");
-			exit(1);
-	}
-
-	if ((vmem = vmem_create_in_region(pmemaddr, mapped_len)) == NULL){
-		perror("vmem_create_in_region");
-		exit(1);
-	}
-}
-
-void destroy_vmem_pmem(){
-	vmem_delete(vmem);
-	pmem_unmap(pmemaddr, mapped_len);
 }
 
 void init_list(){
@@ -171,8 +147,9 @@ static art_node* alloc_node(uint8_t type) {
  * Initializes an ART tree
  * @return 0 on success.
  */
-int art_tree_init(art_tree *t) {
-	create_pmem_vmem();
+int art_tree_init(art_tree *t, void* addr, VMEM* v) {
+	pmemaddr=addr;
+	vmem=v;
 	init_list();
     t->root = NULL;
     t->size = 0;
@@ -242,7 +219,6 @@ static void destroy_node(art_node *n) {
  * @return 0 on success.
  */
 int art_tree_destroy(art_tree *t) {
-	destroy_vmem_pmem();
 	empty_list();
     destroy_node(t->root);
     return 0;
@@ -514,8 +490,6 @@ void persist(){
 
 								memmove(&((art_node4*)aux)->offsets[i], &((art_node4*)aux)->offsets[i+1],((art_node*)aux)->num_children-1);
 								memmove(&((art_node4*)aux)->offsets[i], &((art_node4*)aux)->offsets[i+1],((art_node*)aux)->num_children-1);
-
-								i++;
 							}
 						}
 						((art_node*)aux)->stable=((art_node*)aux)->num_children;
@@ -552,8 +526,6 @@ void persist(){
 
 								memmove(&((art_node16*)aux)->offsets[i], &((art_node16*)aux)->offsets[i+1],((art_node*)aux)->num_children-1);
 								memmove(&((art_node16*)aux)->offsets[i], &((art_node16*)aux)->offsets[i+1],((art_node*)aux)->num_children-1);
-
-								i++;
 							}
 						}
 						((art_node*)aux)->stable=((art_node*)aux)->num_children;
@@ -590,8 +562,6 @@ void persist(){
 
 								memmove(&((art_node48*)aux)->offsets[i], &((art_node48*)aux)->offsets[i+1],((art_node*)aux)->num_children-1);
 								memmove(&((art_node48*)aux)->offsets[i], &((art_node48*)aux)->offsets[i+1],((art_node*)aux)->num_children-1);
-
-								i++;
 							}
 						}
 						((art_node*)aux)->stable=((art_node*)aux)->num_children;
@@ -628,8 +598,6 @@ void persist(){
 
 								memmove(&((art_node256*)aux)->offsets[i], &((art_node256*)aux)->offsets[i+1],((art_node*)aux)->num_children-1);
 								memmove(&((art_node256*)aux)->offsets[i], &((art_node256*)aux)->offsets[i+1],((art_node*)aux)->num_children-1);
-
-								i++;
 							}
 						}
 						((art_node*)aux)->stable=((art_node*)aux)->num_children;

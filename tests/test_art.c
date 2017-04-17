@@ -515,4 +515,3 @@ START_TEST(test_art_max_prefix_len_scan_prefix)
 }
 END_TEST
 
-

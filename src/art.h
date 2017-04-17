@@ -40,11 +40,11 @@ typedef int(*art_callback)(void *data, const unsigned char *key, uint32_t key_le
 typedef struct {
     uint8_t type;
     uint8_t num_children;
-    uint8_t num_remotion;
-    void *substitute;
-    void **parent;
+    uint8_t num_remotions;
     uint32_t partial_len;
-    uint8_t stable;
+    void* substitute;
+    void**ref;
+    //uint8_t stable;
     unsigned char partial[MAX_PREFIX_LEN];
 } art_node;
 
@@ -95,11 +95,14 @@ typedef struct {
  */
 typedef struct {
     void *value;
-    void *substitute;
     uint32_t key_len;
     unsigned char key[];
 } art_leaf;
 
+typedef struct {
+	art_node *afected;
+	void*next;
+}affected_node;
 /**
  * Main struct, points to root.
  */
@@ -108,21 +111,15 @@ typedef struct {
     uint64_t size;
 } art_tree;
 
-
 typedef struct {
-	art_leaf* node;
+	void*dead;
 }grave;
-
-typedef struct {
-	art_node* node;
-	void* next;
-}affected_node;
 
 /**
  * Initializes an ART tree
  * @return 0 on success.
  */
-int art_tree_init(art_tree *t, void* addr, VMEM* v);
+int art_tree_init(art_tree *t, void *addr, VMEM *v);
 
 /**
  * DEPRECATED

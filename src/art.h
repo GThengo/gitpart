@@ -100,7 +100,7 @@ typedef struct {
 } art_leaf;
 
 typedef struct {
-	art_node *afected;
+	art_node *affected;
 	void*next;
 }affected_node;
 /**
@@ -114,6 +114,11 @@ typedef struct {
 typedef struct {
 	void*dead;
 }grave;
+
+typedef struct {
+	grave *grave;
+	void*next;
+}cemetery;
 
 /**
  * Initializes an ART tree

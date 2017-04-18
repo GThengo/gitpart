@@ -24,6 +24,8 @@ VMEM* vmem;
 
 int page;
 affected_node *head, *tail;
+cemetery *first, *last;
+
 
 /**
  * Macros to manipulate pointer tags
@@ -57,7 +59,7 @@ int search_list(affected_node *head, art_node *elem){
 	affected_node*n=head;
 
 	while(n->next!=NULL){
-		if(n->afected == elem)
+		if(n->affected == elem)
 			return 0;
 		n=(affected_node*)n->next;
 	}
@@ -67,10 +69,16 @@ int search_list(affected_node *head, art_node *elem){
 
 
 void persist_tree(){
+	art_node *aux, *delete;
+	grave *g;
+	cemetery *del;
+
 	while(head->next!=NULL){
-		art_node *aux=head->afected;
+		aux=head->affected;
+		delete=aux;
 
 		while(aux->substitute!=NULL)aux=(art_node*)aux->substitute;
+
 		switch(aux->type){
 		case NODE4:
 			for(int i=0; i < aux->num_children+aux->num_remotions; i++){
@@ -105,7 +113,20 @@ void persist_tree(){
 		*(aux->ref)=(void *)aux;
 		pmem_flush(aux->ref, sizeof(art_node **));
 		head=(affected_node*)head->next;
+		vmem_free(vmem, delete);
 	}
+	head=NULL;
+	tail=NULL;
+
+	while(first->next!=NULL){
+		del=first;
+		first=(cemetery*)first->next;
+		g=del->grave;
+		vmem_free(vmem, g->dead);
+		vmem_free(vmem, del);
+	}
+	first=NULL;
+	last=NULL;
 }
 
 long memory_page(void *addr){
@@ -143,10 +164,24 @@ long memory_page(void *addr){
 	return decimal;
 }
 
-void insert_list(affected_node *head, affected_node *tail, art_node *n){
+void insert_grave(grave*g){
+	if(first == NULL){
+		first->grave=g;
+		last=first;
+		last->next=NULL;
+	}else{
+		last->next=(cemetery *)vmem_malloc(vmem, sizeof(cemetery));
+		((cemetery *)last->next)->grave=g;
+		last=last->next;
+	}
+}
+
+void insert_list(art_node *n){
+	if(n->ref!=NULL)
+		return;
 	if(head == NULL){
 		if(n->ref == NULL){
-			head->afected=n;
+			head->affected=n;
 			tail=head;
 			tail->next=NULL;
 
@@ -154,7 +189,7 @@ void insert_list(affected_node *head, affected_node *tail, art_node *n){
 	}else{
 		if(search_list(head, n) != 0){
 			tail->next=(affected_node*)vmem_malloc(vmem, sizeof(affected_node));
-			((affected_node*)tail->next)->afected=n;
+			((affected_node*)tail->next)->affected=n;
 			tail=tail->next;
 
 			if(memory_page(tail->next)!=page){
@@ -220,6 +255,8 @@ int art_tree_init(art_tree *t, void *addr, VMEM*v) {
     pmem_flush(page_in_use, sizeof(void*));
     head=NULL;
     tail=NULL;
+    first=NULL;
+    last=NULL;
     return 0;
 }
 
@@ -664,9 +701,7 @@ static void add_child256(art_node256 *n, art_node **ref, unsigned char c, void *
 		printf("unstable node!!!!");
 		return;
 	}
-
-	//if(memory_page(child)!=page)
-
+	insert_list((art_node*)n);
     if(n->n.num_children+n->n.num_remotions < 256){
     	n->children[n->n.num_children+n->n.num_remotions]=child;
     	n->keys[n->n.num_children+n->n.num_remotions]=c;
@@ -698,7 +733,7 @@ static void add_child48(art_node48 *n, art_node **ref, unsigned char c, void *ch
 		printf("unstable node!!!!");
 		return;
 	}
-
+	insert_list((art_node*)n);
 	if(n->n.num_children+n->n.num_remotions < 48){
 	    	n->children[n->n.num_children+n->n.num_remotions]=child;
 	    	n->keys[n->n.num_children+n->n.num_remotions]=c;
@@ -744,6 +779,7 @@ static void add_child16(art_node16 *n, art_node **ref, unsigned char c, void *ch
 		printf("unstable node!!!!");
 		return;
 	}
+	insert_list((art_node*)n);
 	if(n->n.num_children+n->n.num_remotions < 16){
 		n->children[n->n.num_children+n->n.num_remotions]=child;
 		n->keys[n->n.num_children+n->n.num_remotions]=c;
@@ -788,6 +824,7 @@ static void add_child4(art_node4 *n, art_node **ref, unsigned char c, void *chil
 		printf("unstable node!!!!");
 		return;
 	}
+	insert_list((art_node*)n);
 	if(n->n.num_children+n->n.num_remotions < 4){
 		n->children[n->n.num_children+n->n.num_remotions]=child;
 		n->keys[n->n.num_children+n->n.num_remotions]=c;
@@ -898,7 +935,7 @@ static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *
         // Add the leafs to the new node4
         //*ref = (art_node*)new_node;
         n->substitute=(void*)new_node;
-
+        insert_list((art_node*)n);
         add_child4(new_node, ref, l->key[depth+longest_prefix], SET_LEAF(l));
         add_child4(new_node, ref, l2->key[depth+longest_prefix], SET_LEAF(l2));
         return NULL;
@@ -917,7 +954,7 @@ static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *
         art_node4 *new_node = (art_node4*)alloc_node(NODE4);
         //*ref = (art_node*)new_node;
         n->substitute=(art_node*)new_node;
-
+        insert_list((art_node*)n);
         new_node->n.partial_len = prefix_diff;
         memcpy(new_node->n.partial, n->partial, min(MAX_PREFIX_LEN, prefix_diff));
 
@@ -979,11 +1016,13 @@ static void remove_child256(art_node256 *n, art_node **ref, art_node **l) {
 		printf("unstable node!!!!");
 		return;
 	}
+	insert_list((art_node*)n);
 	if(n->n.num_children+n->n.num_remotions < 256){
 
 		int idx=l - n->children;
 		grave *g=vmem_malloc(vmem, sizeof(grave));
 		g->dead=(void*)n->children[idx];
+		insert_grave(g);
 		n->children[n->n.num_children+n->n.num_remotions]=(void*)g;
 		n->keys[n->n.num_children+n->n.num_remotions]=n->keys[idx];
 		n->offsets[n->n.num_children+n->n.num_remotions]=n->n.num_children+n->n.num_remotions;
@@ -1039,10 +1078,12 @@ static void remove_child48(art_node48 *n, art_node **ref, art_node **l) {
 		printf("unstable node!!!!");
 		return;
 	}
+	insert_list((art_node*)n);
 	if(n->n.num_children+n->n.num_remotions < 48){
 		int idx=l - n->children;
 		grave *g=vmem_malloc(vmem, sizeof(grave));
 		g->dead=(void*)n->children[idx];
+		insert_grave(g);
 		n->children[n->n.num_children+n->n.num_remotions]=(void*)g;
 		n->keys[n->n.num_children+n->n.num_remotions]=n->keys[idx];
 		n->offsets[n->n.num_children+n->n.num_remotions]=n->n.num_children+n->n.num_remotions;
@@ -1098,10 +1139,12 @@ static void remove_child16(art_node16 *n, art_node **ref, art_node **l) {
 		printf("unstable node!!!!");
 		return;
 	}
+	insert_list((art_node*)n);
 	if(n->n.num_children+n->n.num_remotions < 16){
 		int idx=l - n->children;
 		grave *g=vmem_malloc(vmem, sizeof(grave));
 		g->dead=(void*)n->children[idx];
+		insert_grave(g);
 		n->children[n->n.num_children+n->n.num_remotions]=(void*)g;
 		n->keys[n->n.num_children+n->n.num_remotions]=n->keys[idx];
 		n->offsets[n->n.num_children+n->n.num_remotions]=n->n.num_children+n->n.num_remotions;
@@ -1155,10 +1198,12 @@ static void remove_child4(art_node4 *n, art_node **ref, art_node **l) {
 		printf("unstable node!!!!");
 		return;
 	}
+	insert_list((art_node*)n);
 	if(n->n.num_children+n->n.num_remotions < 16){
 		int idx=l - n->children;
 		grave *g=vmem_malloc(vmem, sizeof(grave));
 		g->dead=(void*)n->children[idx];
+		insert_grave(g);
 		n->children[n->n.num_children+n->n.num_remotions]=(void*)g;
 		n->keys[n->n.num_children+n->n.num_remotions]=n->keys[idx];
 		n->offsets[n->n.num_children+n->n.num_remotions]=n->n.num_children+n->n.num_remotions;
@@ -1248,6 +1293,7 @@ static art_leaf* recursive_delete(art_node *n, art_node **ref, const unsigned ch
         if (!leaf_matches(l, key, key_len, depth)) {
             //*ref = NULL;
         	n->substitute=NULL;
+        	insert_list((art_node*)n);
             return l;
         }
         return NULL;
@@ -1364,7 +1410,9 @@ static int recursive_iter(art_node *n, art_callback cb, void *data) {
  * @return 0 on success, or the return of the callback.
  */
 int art_iter(art_tree *t, art_callback cb, void *data) {
-    return recursive_iter(t->root, cb, data);
+	art_node *n=t->root;
+	while(n->substitute!=NULL)n=(art_node*)n->substitute;
+    return recursive_iter(n, cb, data);
 }
 
 /**
@@ -1396,6 +1444,7 @@ int art_iter_prefix(art_tree *t, const unsigned char *key, int key_len, art_call
     art_node *n = t->root;
     int prefix_len, depth = 0;
     while (n) {
+    	while(n->substitute!=NULL)n=(art_node*)n->substitute;
         // Might be a leaf
         if (IS_LEAF(n)) {
             n = (art_node*)LEAF_RAW(n);

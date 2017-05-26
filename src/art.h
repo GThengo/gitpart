@@ -20,6 +20,7 @@ extern "C" {
 
 #define PATH "pmem-fs/partfile"
 
+
 #if defined(__GNUC__) && !defined(__clang__)
 # if __STDC_VERSION__ >= 199901L && 402 == (__GNUC__ * 100 + __GNUC_MINOR__)
 /*
@@ -38,13 +39,12 @@ typedef int(*art_callback)(void *data, const unsigned char *key, uint32_t key_le
  * of all the various node sizes
  */
 typedef struct {
+	uint8_t unused;
     uint8_t type;
-    uint8_t num_children;
+    uint8_t num_instructions;
     uint8_t num_remotions;
     uint32_t partial_len;
-    void* substitute;
-    void**ref;
-    //uint8_t stable;
+    void **first_parent;
     unsigned char partial[MAX_PREFIX_LEN];
 } art_node;
 
@@ -53,7 +53,7 @@ typedef struct {
  */
 typedef struct {
     art_node n;
-    unsigned char offsets[4];
+    int offsets[4];
     unsigned char keys[4];
     art_node *children[4];
 } art_node4;
@@ -63,7 +63,7 @@ typedef struct {
  */
 typedef struct {
     art_node n;
-    unsigned char offsets[16];
+    int offsets[16];
     unsigned char keys[16];
     art_node *children[16];
 } art_node16;
@@ -74,7 +74,7 @@ typedef struct {
  */
 typedef struct {
     art_node n;
-    unsigned char offsets[48];
+    int offsets[48];
     unsigned char keys[48];
     art_node *children[48];
 } art_node48;
@@ -84,9 +84,9 @@ typedef struct {
  */
 typedef struct {
     art_node n;
-    unsigned char offsets[256];
-    unsigned char keys[256];
-    art_node *children[256];
+    int offsets[257];
+    unsigned char keys[257];
+    art_node *children[257];
 } art_node256;
 
 /**
@@ -94,15 +94,12 @@ typedef struct {
  * of arbitrary size, as they include the key.
  */
 typedef struct {
+	void **first_parent;
     void *value;
     uint32_t key_len;
     unsigned char key[];
 } art_leaf;
 
-typedef struct {
-	art_node *affected;
-	void*next;
-}affected_node;
 /**
  * Main struct, points to root.
  */
@@ -112,13 +109,9 @@ typedef struct {
 } art_tree;
 
 typedef struct {
-	void*dead;
+	void* dead;
 }grave;
 
-typedef struct {
-	grave *grave;
-	void*next;
-}cemetery;
 
 /**
  * Initializes an ART tree

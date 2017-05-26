@@ -2,9 +2,9 @@
 #include <inttypes.h>
 #include <stdio.h>
 #include <string.h>
-
+#include <stdlib.h>
 #include <check.h>
-
+#include <libpmem.h>
 #include "art.h"
 
 
@@ -16,15 +16,13 @@ VMEM *vmem;
 void create_pmem_vmem(){
 	/* create a pmem file and memory map it */
 	if ((pmemaddr = pmem_map_file(PATH, PMEM_LEN, PMEM_FILE_CREATE, 0666, &mapped_len, &is_pmem)) == NULL) {
-			perror("pmem_map_file");
-			//exit(1);
-			return;
+			perror("pmem_map_file\n");
+			exit(1);
 	}
 
 	if ((vmem = vmem_create_in_region(pmemaddr, mapped_len)) == NULL){
-		perror("vmem_create_in_region");
-		//exit(1);
-		return;
+		perror("vmem_create_in_region\n");
+		exit(1);
 	}
 }
 
@@ -514,4 +512,3 @@ START_TEST(test_art_max_prefix_len_scan_prefix)
     destroy_vmem_pmem();
 }
 END_TEST
-

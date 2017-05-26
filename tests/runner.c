@@ -2,6 +2,8 @@
 #include <stdio.h>
 #include <syslog.h>
 #include "test_art.c"
+//#include "art.c"
+
 
 int main(void)
 {

@@ -291,6 +291,7 @@ START_TEST(test_art_insert_iter)
 }
 END_TEST
 
+
 typedef struct {
     int count;
     int max_count;
@@ -429,6 +430,7 @@ START_TEST(test_art_long_prefix)
 }
 END_TEST
 
+
 START_TEST(test_art_insert_search_uuid)
 {
     art_tree t;
@@ -480,6 +482,7 @@ START_TEST(test_art_insert_search_uuid)
 }
 END_TEST
 
+
 START_TEST(test_art_max_prefix_len_scan_prefix)
 {
     art_tree t;
@@ -512,3 +515,4 @@ START_TEST(test_art_max_prefix_len_scan_prefix)
     destroy_vmem_pmem();
 }
 END_TEST
+

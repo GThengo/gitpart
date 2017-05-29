@@ -34,10 +34,9 @@ void *pmemaddr;
 VMEM* vmem;
 
 intptr_t page;
-intptr_t oldpage;
 
 int page_offset;
-int oldpage_offset;
+
 
 void **nodes;
 int idx_nodes=0;
@@ -58,21 +57,23 @@ int is_writeable(void *p)
 }
 
 
-void system_fail(){
+//recovering from a system failure
+void system_failure(){
 	mprotect((void*)page, sysconf(_SC_PAGESIZE),PROT_NONE);
 
-	for(int i=oldpage_offset; i < ARRAY_SIZE; i++){
-		if(nodes[i]){
-			if(IS_LEAF(&nodes[i]))
-			{}
-			else{
-				if(is_writeable((void*)((art_node*)nodes[i])))
-					if(((art_node*)nodes[i])->first_parent){
-						*((art_node*)nodes[i])->first_parent=((art_node*)nodes[i]);
-					}
+	for(int i=0; i < ARRAY_SIZE; i++){
+		if(nodes[i] && is_writeable(nodes[i])){
+			if(((art_node*)nodes[i])->first_parent){
+				*((art_node*)nodes[i])->first_parent=(art_node*)nodes[i];
+				((art_node*)nodes[i])->first_parent=NULL;
 			}
-		}else
-			break;
+		}
+	}
+}
+
+void free_space(){
+	for(int i=0; i< page_offset; i++){
+
 	}
 }
 
@@ -92,24 +93,24 @@ intptr_t memory_page(void *addr){
 
 
 
-void persist(){
+void persist(void* addr){
 
 	for(int i=page_offset; i < idx_nodes; i++){
-		if(IS_LEAF(&nodes[i])){
-			pmem_flush(&nodes[i], sizeof(art_leaf*));
-		}else
-			pmem_flush(&nodes[i], sizeof(art_node*));
+			pmem_flush(&nodes[i], sizeof(void*));
+
+			if(((art_node*)nodes[i])->first_parent){
+				((art_node*)nodes[i])->first_parent=NULL;
+			}
 	}
 
+	page=memory_page(addr);
+	page_offset=idx_nodes;
+
+	pmem_flush((void*)page, sizeof(void*));
+	pmem_flush(&page_offset, sizeof(int));
 }
 
 
-//void recover_faluer(){
-//	node_t aux=nodes_h;
-//	int cont=0;
-//
-//
-//}
 /**
  * Allocates a node of the given type,
  * initializes to zero and sets the type.
@@ -136,16 +137,11 @@ static art_node* alloc_node(uint8_t type) {
     intptr_t aux=memory_page((void*)n);
 
 	if(page != aux){
-		if(oldpage != page){
-			oldpage=page;
-			oldpage_offset=page_offset;
-		}
 		page=aux;
 		page_offset=idx_nodes;
 
-		persist();
-		pmem_flush((void*)oldpage, sizeof(intptr_t));
-		pmem_flush((void*)page, sizeof(intptr_t));
+		persist((void *)n);
+
 	}
 
 	nodes[idx_nodes]=(void*)n;
@@ -173,12 +169,12 @@ int art_tree_init(art_tree *t, void *addr, VMEM *v) {
 	idx_nodes++;
 
 	page=memory_page(t->root);
-	oldpage=page;
 
 	page_offset=idx_nodes;
-	oldpage_offset=idx_nodes;
+
 
 	pmem_flush((void*)page, sizeof(void*));
+	pmem_flush(&page_offset, sizeof(int));
 
     t->root = NULL;
     t->size = 0;
@@ -251,6 +247,7 @@ static void destroy_node(art_node *n) {
  * @return 0 on success.
  */
 int art_tree_destroy(art_tree *t) {
+
     destroy_node(t->root);
     return 0;
 }
@@ -571,16 +568,11 @@ static art_leaf* make_leaf(const unsigned char *key, int key_len, void *value) {
     intptr_t aux=memory_page((void*)l);
 
     if(page != aux){
-    	if(oldpage != page){
-			oldpage=page;
-			oldpage_offset=page_offset;
-		}
 		page=aux;
 		page_offset=idx_nodes;
 
-		persist();
-		pmem_flush((void*)oldpage, sizeof(intptr_t));
-		pmem_flush((void*)page, sizeof(intptr_t));
+		persist((void*)l);
+
 	}
 
 	nodes[idx_nodes]=(void*)l;
@@ -772,6 +764,14 @@ static void add_child256(art_node256 *n, art_node **ref, unsigned char c, void *
 			}
 		}
     	n->n.num_instructions++;
+    	if(page!=memory_page((void*)n)){
+			nodes[idx_nodes]=(void*)&n->children[n->n.num_instructions-1];
+			idx_nodes++;
+			nodes[idx_nodes]=(void*)&n->keys[n->n.num_instructions-1];
+			idx_nodes++;
+			nodes[idx_nodes]=(void*)&n->n.num_instructions;
+			idx_nodes++;
+    	}
     }
 }
 
@@ -793,6 +793,14 @@ static void add_child48(art_node48 *n, art_node **ref, unsigned char c, void *ch
 			}
 		}
         n->n.num_instructions++;
+        if(page!=memory_page((void*)n)){
+			nodes[idx_nodes]=(void*)&n->children[n->n.num_instructions-1];
+			idx_nodes++;
+			nodes[idx_nodes]=(void*)&n->keys[n->n.num_instructions-1];
+			idx_nodes++;
+			nodes[idx_nodes]=(void*)&n->n.num_instructions;
+			idx_nodes++;
+		}
     } else {
         art_node256 *new_node = (art_node256*)alloc_node(NODE256);
         copy_header((art_node*)new_node, (art_node*)n);
@@ -801,7 +809,10 @@ static void add_child48(art_node48 *n, art_node **ref, unsigned char c, void *ch
         memcpy(new_node->offsets, n->offsets, sizeof(int)*n->n.num_instructions);
         *ref = (art_node*)new_node;
         n->n.unused=1;
-        n->n.first_parent=(void**)ref;
+        if(n->n.first_parent && page!=memory_page((void*)n)){
+        	n->n.first_parent=(void**)ref;
+        	pmem_flush(&n->n.first_parent, sizeof(void**));
+        }
         //free(n);
         add_child256(new_node, ref, c, child);
     }
@@ -825,6 +836,14 @@ static void add_child16(art_node16 *n, art_node **ref, unsigned char c, void *ch
 			}
 		}
 		n->n.num_instructions++;
+		if(page!=memory_page((void*)n)){
+			nodes[idx_nodes]=(void*)&n->children[n->n.num_instructions-1];
+			idx_nodes++;
+			nodes[idx_nodes]=(void*)&n->keys[n->n.num_instructions-1];
+			idx_nodes++;
+			nodes[idx_nodes]=(void*)&n->n.num_instructions;
+			idx_nodes++;
+		}
 	} else {
 		art_node48 *new_node = (art_node48*)alloc_node(NODE48);
 		copy_header((art_node*)new_node, (art_node*)n);
@@ -833,7 +852,10 @@ static void add_child16(art_node16 *n, art_node **ref, unsigned char c, void *ch
 		memcpy(new_node->offsets, n->offsets, sizeof(int)*n->n.num_instructions);
 		*ref = (art_node*)new_node;
 		n->n.unused=1;
-		n->n.first_parent=(void**)ref;
+		if(n->n.first_parent && page!=memory_page((void*)n)){
+			n->n.first_parent=(void**)ref;
+			pmem_flush(&n->n.first_parent, sizeof(void**));
+		}
 		//free(n);
 		add_child48(new_node, ref, c, child);
 	}
@@ -857,6 +879,14 @@ static void add_child4(art_node4 *n, art_node **ref, unsigned char c, void *chil
 			}
 		}
 		n->n.num_instructions++;
+		if(page!=memory_page((void*)n)){
+			nodes[idx_nodes]=(void*)&n->children[n->n.num_instructions-1];
+			idx_nodes++;
+			nodes[idx_nodes]=(void*)&n->keys[n->n.num_instructions-1];
+			idx_nodes++;
+			nodes[idx_nodes]=(void*)&n->n.num_instructions;
+			idx_nodes++;
+		}
 	} else {
 		art_node16 *new_node = (art_node16*)alloc_node(NODE16);
 		copy_header((art_node*)new_node, (art_node*)n);
@@ -865,7 +895,10 @@ static void add_child4(art_node4 *n, art_node **ref, unsigned char c, void *chil
 		memcpy(new_node->offsets, n->offsets, sizeof(int)*n->n.num_instructions);
 		*ref = (art_node*)new_node;
 		n->n.unused=1;
-		n->n.first_parent=(void**)ref;
+		if(n->n.first_parent && page!=memory_page((void*)n)){
+			n->n.first_parent=(void**)ref;
+			pmem_flush(&n->n.first_parent, sizeof(void**));
+		}
 		//free(n);
 		add_child16(new_node, ref, c, child);
 	}
@@ -963,8 +996,10 @@ static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *
         art_node4 *new_node = (art_node4*)alloc_node(NODE4);
 
         *ref = (art_node*)new_node;
-        if(!n->first_parent)
-        	n->first_parent=(void**)ref;
+        if(n->first_parent && page!=memory_page((void*)n)){
+			n->first_parent=(void**)ref;
+			pmem_flush(&n->first_parent, sizeof(void**));
+		}
         new_node->n.partial_len = prefix_diff;
         memcpy(new_node->n.partial, n->partial, min(MAX_PREFIX_LEN, prefix_diff));
 
@@ -1034,16 +1069,10 @@ static void remove_child256(art_node256 *n, art_node **ref, unsigned char c) {
 		intptr_t aux=memory_page((void*)g);
 
 		if(page != aux){
-			if(oldpage != page){
-				oldpage=page;
-				oldpage_offset=page_offset;
-			}
 			page=aux;
 			page_offset=idx_nodes;
 
-			persist();
-			pmem_flush((void*)oldpage, sizeof(intptr_t));
-			pmem_flush((void*)page, sizeof(intptr_t));
+			persist((void*)g);
 		}
 
 		n->children[n->n.num_instructions]=(void*)g;
@@ -1060,7 +1089,16 @@ static void remove_child256(art_node256 *n, art_node **ref, unsigned char c) {
 		}
 		n->n.num_instructions++;
 		n->n.num_remotions++;
-		//printf("here\n");
+		if(page!=memory_page((void*)n) && !n->n.first_parent){
+			nodes[idx_nodes]=(void*)&n->children[n->n.num_instructions-1];
+			idx_nodes++;
+			nodes[idx_nodes]=(void*)&n->keys[n->n.num_instructions-1];
+			idx_nodes++;
+			nodes[idx_nodes]=(void*)&n->n.num_instructions;
+			idx_nodes++;
+			nodes[idx_nodes]=(void*)&n->n.num_remotions;
+			idx_nodes++;
+		}
 		if(n->n.num_instructions - n->n.num_remotions*2 == 37){
 			//printf("here\n");
 			*ref=clean_node((art_node*)n);
@@ -1073,14 +1111,23 @@ static void remove_child256(art_node256 *n, art_node **ref, unsigned char c) {
 			memcpy(new_node->offsets, ((art_node256*)*ref)->offsets, sizeof(int)*((art_node256*)*ref)->n.num_instructions);
 			*ref = (art_node*)new_node;
 			n->n.unused=1;
-			n->n.first_parent=(void**)ref;
+			if(n->n.first_parent && page!=memory_page((void*)n)){
+				n->n.first_parent=(void**)ref;
+				pmem_flush(&n->n.first_parent, sizeof(void**));
+			}
 			//free(n);
+//			nodes[idx_nodes]=(void*)*ref;
+//			idx_nodes++;
 		}
 	}else{
 		if(n->n.num_remotions > 0){
 			*ref=clean_node((art_node*)n);
 
 			n->n.unused=1;
+			if(n->n.first_parent && page!=memory_page((void*)n)){
+				n->n.first_parent=(void**)ref;
+				pmem_flush(&n->n.first_parent, sizeof(void**));
+			}
 			//free(n);
 			return remove_child256((art_node256*)*ref, ref, c);
 		}else
@@ -1103,16 +1150,13 @@ static void remove_child48(art_node48 *n, art_node **ref, unsigned char c) {
 		intptr_t aux=memory_page((void*)g);
 
 		if(page != aux){
-			if(oldpage != page){
-				oldpage=page;
-				oldpage_offset=page_offset;
-			}
+
 			page=aux;
 			page_offset=idx_nodes;
 
-			persist();
-			pmem_flush((void*)oldpage, sizeof(intptr_t));
-			pmem_flush((void*)page, sizeof(intptr_t));
+			persist((void*)g);
+
+
 		}
 
 		n->children[n->n.num_instructions] = (void*)g;
@@ -1130,6 +1174,16 @@ static void remove_child48(art_node48 *n, art_node **ref, unsigned char c) {
 		n->n.num_instructions++;
 		n->n.num_remotions++;
 
+		if(page!=memory_page((void*)n) && !n->n.first_parent){
+			nodes[idx_nodes]=(void*)&n->children[n->n.num_instructions-1];
+			idx_nodes++;
+			nodes[idx_nodes]=(void*)&n->keys[n->n.num_instructions-1];
+			idx_nodes++;
+			nodes[idx_nodes]=(void*)&n->n.num_instructions;
+			idx_nodes++;
+			nodes[idx_nodes]=(void*)&n->n.num_remotions;
+			idx_nodes++;
+		}
 		//printf("%d %d %d\n",n->n.num_instructions, n->n.num_remotions,n->n.num_instructions - n->n.num_remotions*2);
 		if(n->n.num_instructions - n->n.num_remotions*2 == 12){
 
@@ -1147,7 +1201,12 @@ static void remove_child48(art_node48 *n, art_node **ref, unsigned char c) {
 			memcpy(new_node->offsets, ((art_node48*)*ref)->offsets, sizeof(int)*((art_node48*)*ref)->n.num_instructions);
 			*ref = (art_node*)new_node;
 			n->n.unused=1;
-			n->n.first_parent=(void**)ref;
+			if(n->n.first_parent && page!=memory_page((void*)n)){
+				n->n.first_parent=(void**)ref;
+				pmem_flush(&n->n.first_parent, sizeof(void**));
+			}
+//			nodes[idx_nodes]=(void*)*ref;
+//			idx_nodes++;
 			//free(n);
 			//printf("%d %d %d\n",new_node->n.type,new_node->n.num_instructions, new_node->n.num_remotions);
 		}
@@ -1155,8 +1214,11 @@ static void remove_child48(art_node48 *n, art_node **ref, unsigned char c) {
 		if(n->n.num_remotions > 0){
 
 			*ref=clean_node((art_node*)n);
-
 			n->n.unused=1;
+			if(n->n.first_parent && page!=memory_page((void*)n)){
+				n->n.first_parent=(void**)ref;
+				pmem_flush(&n->n.first_parent, sizeof(void**));
+			}
 			//free(n);
 			return remove_child48((art_node48*)*ref, ref, c);
 		}else{
@@ -1169,7 +1231,10 @@ static void remove_child48(art_node48 *n, art_node **ref, unsigned char c) {
 			memcpy(new_node->offsets, n->offsets, sizeof(int)*n->n.num_instructions);
 			*ref = (art_node*)new_node;
 			n->n.unused=1;
-			n->n.first_parent=(void**)ref;
+			if(n->n.first_parent && page!=memory_page((void*)n)){
+				n->n.first_parent=(void**)ref;
+				pmem_flush(&n->n.first_parent, sizeof(void**));
+			}
 			//free(n);
 			return remove_child256(new_node, ref, c);
 		}
@@ -1192,16 +1257,13 @@ static void remove_child16(art_node16 *n, art_node **ref, unsigned char c) {
 		intptr_t aux=memory_page((void*)g);
 
 		if(page != aux){
-			if(oldpage != page){
-				oldpage=page;
-				oldpage_offset=page_offset;
-			}
+
 			page=aux;
 			page_offset=idx_nodes;
 
-			persist();
-			pmem_flush((void*)oldpage, sizeof(intptr_t));
-			pmem_flush((void*)page, sizeof(intptr_t));
+			persist((void*)g);
+
+
 		}
 
 		n->children[n->n.num_instructions] = (void*)g;
@@ -1219,6 +1281,17 @@ static void remove_child16(art_node16 *n, art_node **ref, unsigned char c) {
 		n->n.num_instructions++;
 		n->n.num_remotions++;
 
+		if(page!=memory_page((void*)n)){
+			nodes[idx_nodes]=(void*)&n->children[n->n.num_instructions-1];
+			idx_nodes++;
+			nodes[idx_nodes]=(void*)&n->keys[n->n.num_instructions-1];
+			idx_nodes++;
+			nodes[idx_nodes]=(void*)&n->n.num_instructions;
+			idx_nodes++;
+			nodes[idx_nodes]=(void*)&n->n.num_remotions;
+			idx_nodes++;
+		}
+
 		if(n->n.num_instructions - n->n.num_remotions*2 == 3){
 
 			*ref=clean_node((art_node*)n);
@@ -1231,8 +1304,13 @@ static void remove_child16(art_node16 *n, art_node **ref, unsigned char c) {
 			memcpy(new_node->offsets, ((art_node16*)*ref)->offsets, sizeof(int)*((art_node16*)*ref)->n.num_instructions);
 			*ref = (art_node*)new_node;
 			n->n.unused=1;
-			n->n.first_parent=(void**)ref;
+			if(n->n.first_parent && page!=memory_page((void*)n)){
+				n->n.first_parent=(void**)ref;
+				pmem_flush(&n->n.first_parent, sizeof(void**));
+			}
 			//free(n);
+//			nodes[idx_nodes]=(void*)*ref;
+//			idx_nodes++;
 		}
 	} else {
 
@@ -1240,6 +1318,10 @@ static void remove_child16(art_node16 *n, art_node **ref, unsigned char c) {
 			*ref=clean_node((art_node*)n);
 
 			n->n.unused=1;
+			if(n->n.first_parent && page!=memory_page((void*)n)){
+				n->n.first_parent=(void**)ref;
+				pmem_flush(&n->n.first_parent, sizeof(void**));
+			}
 			//free(n);
 			return remove_child16((art_node16*)*ref, ref, c);
 		}else{
@@ -1250,7 +1332,10 @@ static void remove_child16(art_node16 *n, art_node **ref, unsigned char c) {
 			memcpy(new_node->keys, n->keys, sizeof(unsigned char)*n->n.num_instructions);
 			memcpy(new_node->offsets, n->offsets, sizeof(int)*n->n.num_instructions);
 			*ref = (art_node*)new_node;
-			n->n.first_parent=(void**)ref;
+			if(n->n.first_parent && page!=memory_page((void*)n)){
+				n->n.first_parent=(void**)ref;
+				pmem_flush(&n->n.first_parent, sizeof(void**));
+			}
 			//free(n);
 			return remove_child48(new_node, ref, c);
 		}
@@ -1271,16 +1356,13 @@ static void remove_child4(art_node4 *n, art_node **ref, unsigned char c) {
 		intptr_t aux=memory_page((void*)g);
 
 		if(page != aux){
-			if(oldpage != page){
-				oldpage=page;
-				oldpage_offset=page_offset;
-			}
+
 			page=aux;
 			page_offset=idx_nodes;
 
-			persist();
-			pmem_flush((void*)oldpage, sizeof(intptr_t));
-			pmem_flush((void*)page, sizeof(intptr_t));
+			persist((void*)g);
+
+
 		}
 
 		n->children[n->n.num_instructions] = (void*)g;
@@ -1297,6 +1379,11 @@ static void remove_child4(art_node4 *n, art_node **ref, unsigned char c) {
 		}
 		n->n.num_instructions++;
 		n->n.num_remotions++;
+
+		if(page!=memory_page((void*)n) ){
+			nodes[idx_nodes]=(void*)n;
+			idx_nodes++;
+		}
 
 		if(n->n.num_instructions - n->n.num_remotions*2== 1){
 
@@ -1323,8 +1410,16 @@ static void remove_child4(art_node4 *n, art_node **ref, unsigned char c) {
 			}
 			*ref = child;
 			n->n.unused=1;
-			n->n.first_parent=(void**)ref;
+			if(n->n.first_parent && page!=memory_page((void*)n)){
+				n->n.first_parent=(void**)ref;
+				pmem_flush(&n->n.first_parent, sizeof(void**));
+			}
 			//free(n);
+
+//			nodes[idx_nodes]=(void*)&n->n.first_parent;
+//			idx_nodes++;
+//			nodes[idx_nodes]=(void*)*ref;
+//			idx_nodes++;
 		}
 	} else {
 
@@ -1332,7 +1427,10 @@ static void remove_child4(art_node4 *n, art_node **ref, unsigned char c) {
 			*ref=clean_node((art_node*)n);
 
 			n->n.unused=1;
-			n->n.first_parent=(void**)ref;
+			if(n->n.first_parent && page!=memory_page((void*)n)){
+				n->n.first_parent=(void**)ref;
+				pmem_flush(&n->n.first_parent, sizeof(void**));
+			}
 			//free(n);
 			return remove_child4((art_node4*)*ref, ref, c);
 		}else{
@@ -1344,7 +1442,10 @@ static void remove_child4(art_node4 *n, art_node **ref, unsigned char c) {
 			memcpy(new_node->offsets, n->offsets, sizeof(int)*n->n.num_instructions);
 			*ref = (art_node*)new_node;
 			n->n.unused=1;
-			n->n.first_parent=(void**)ref;
+			if(n->n.first_parent && page!=memory_page((void*)n)){
+				n->n.first_parent=(void**)ref;
+				pmem_flush(&n->n.first_parent, sizeof(void**));
+			}
 			//free(n);
 			return remove_child16(new_node, ref, c);
 		}

@@ -8,6 +8,7 @@
 extern "C" {
 #endif
 
+#define NODE0	0
 #define NODE4   1
 #define NODE16  2
 #define NODE48  3
@@ -15,11 +16,10 @@ extern "C" {
 
 #define MAX_PREFIX_LEN 10
 
-/* using 1G of pmem*/
-#define PMEM_LEN 1073741824
+/* using 512M of pmem*/
+#define PMEM_LEN 536870912
 
 #define PATH "pmem-fs/partfile"
-
 
 #if defined(__GNUC__) && !defined(__clang__)
 # if __STDC_VERSION__ >= 199901L && 402 == (__GNUC__ * 100 + __GNUC_MINOR__)
@@ -39,12 +39,11 @@ typedef int(*art_callback)(void *data, const unsigned char *key, uint32_t key_le
  * of all the various node sizes
  */
 typedef struct {
-	uint8_t unused;
     uint8_t type;
     uint8_t num_instructions;
     uint8_t num_remotions;
     uint32_t partial_len;
-    void **first_parent;
+    void *change;
     unsigned char partial[MAX_PREFIX_LEN];
 } art_node;
 
@@ -94,7 +93,6 @@ typedef struct {
  * of arbitrary size, as they include the key.
  */
 typedef struct {
-	void **first_parent;
     void *value;
     uint32_t key_len;
     unsigned char key[];
@@ -109,15 +107,14 @@ typedef struct {
 } art_tree;
 
 typedef struct {
+	art_node *n;
 	void* dead;
-}grave;
-
-
+}tombstone;
 /**
  * Initializes an ART tree
  * @return 0 on success.
  */
-int art_tree_init(art_tree *t, void *addr, VMEM *v);
+int art_tree_init(art_tree *t, void* addr, VMEM* v);
 
 /**
  * DEPRECATED

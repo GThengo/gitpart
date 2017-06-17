@@ -3,8 +3,9 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+
 #include <check.h>
-#include <libpmem.h>
+
 #include "art.h"
 
 
@@ -515,4 +516,3 @@ START_TEST(test_art_max_prefix_len_scan_prefix)
     destroy_vmem_pmem();
 }
 END_TEST
-

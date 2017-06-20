@@ -4,7 +4,6 @@
 #include "test_art.c"
 //#include "art.c"
 
-
 int main(void)
 {
     setlogmask(LOG_UPTO(LOG_DEBUG));

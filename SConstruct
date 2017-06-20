@@ -16,6 +16,12 @@ if "SHLINKFLAGS" not in os.environ:
 shared_object = env_with_err.SharedLibrary('art', ['src/art.c'])
 test_runner = env_with_err.Program('test_runner',
             ["tests/runner.c"],
-            LIBS=["check", "art", "pmem", "vmem"],
+            LIBS=["check", "art", "pmem", "vmem", "m"],
             LIBPATH = ['#', '#/deps/check-0.9.8/src/.libs', '/usr/lib', '/usr/local/lib'])
+# benchmark = env_with_err.Program('benchmark',
+#             ["tests/benchmark/runner.c"],
+#             LIBS=["check", "art", "pmem", "vmem"],
+#             LIBPATH = ['#', '#/deps/check-0.9.8/src/.libs', '/usr/lib', '/usr/local/lib'])
+# Default(shared_object, benchmark)
 Default(shared_object, test_runner)
+

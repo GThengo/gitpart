@@ -1,4 +1,5 @@
 *.so
 *.o
-cp_to_vm.h
+cp_to_vm.sh
+test_runner
 
